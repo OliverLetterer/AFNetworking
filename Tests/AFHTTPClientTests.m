@@ -43,6 +43,7 @@
     expect([request valueForHTTPHeaderField:@"x-some-key"]).to.equal(@"SomeValue");
     
     expect(^{ [self.client setDefaultHeader:@"x-some-key" value:nil]; }).toNot.raise(nil);
+<<<<<<< HEAD
 }
 
 - (void)testAFQueryStringFromParametersWithEncoding {
@@ -71,6 +72,8 @@
     [self.client cancelAllHTTPOperationsWithMethod:@"GET" path:@"ip"];
     NSOperation *operation = [self.client.operationQueue.operations objectAtIndex:2];
     expect([operation isCancelled]).beTruthy();
+=======
+>>>>>>> Improves testDefaultHeaders.
 }
 
 - (void)testReachabilityStatus {
