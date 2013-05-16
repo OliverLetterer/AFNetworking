@@ -73,6 +73,20 @@
     expect([operation isCancelled]).beTruthy();
 }
 
+- (void)testReachabilityStatus {
+    [Expecta setAsynchronousTestTimeout:5.0];
+    
+    expect(self.client.networkReachabilityStatus).to.equal(@(AFNetworkReachabilityStatusUnknown));
+    
+    __block AFNetworkReachabilityStatus reachabilityStatus = self.client.networkReachabilityStatus;
+    
+    [self.client setReachabilityStatusChangeBlock:^(AFNetworkReachabilityStatus status) {
+        reachabilityStatus = status;
+    }];
+    
+    expect(reachabilityStatus).will.equal(@(AFNetworkReachabilityStatusReachableViaWiFi));
+}
+
 - (void)testJSONRequestOperationContruction {
     NSMutableURLRequest *request = [self.client requestWithMethod:@"GET" path:@"/path" parameters:nil];
     [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
