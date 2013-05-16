@@ -45,6 +45,20 @@
     expect(^{ [self.client setDefaultHeader:@"x-some-key" value:nil]; }).toNot.raise(nil);
 }
 
+- (void)testCancelAllHTTPOperationsWithMethodPath {
+    NSMutableURLRequest *firstRequest = [self.client requestWithMethod:@"POST" path:@"/post" parameters:@{ @"key": @"value" }];
+    NSMutableURLRequest *secondRequest = [self.client requestWithMethod:@"GET" path:@"/path" parameters:nil];
+    NSMutableURLRequest *thirdRequest = [self.client requestWithMethod:@"GET" path:@"/ip" parameters:nil];
+    
+    [self.client enqueueBatchOfHTTPRequestOperationsWithRequests:@[ firstRequest, secondRequest, thirdRequest ] progressBlock:NULL completionBlock:NULL];
+    
+    expect(self.client.operationQueue.operationCount).to.equal(4);
+    
+    [self.client cancelAllHTTPOperationsWithMethod:@"GET" path:@"ip"];
+    NSOperation *operation = [self.client.operationQueue.operations objectAtIndex:2];
+    expect([operation isCancelled]).beTruthy();
+}
+
 - (void)testJSONRequestOperationContruction {
     NSMutableURLRequest *request = [self.client requestWithMethod:@"GET" path:@"/path" parameters:nil];
     [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
