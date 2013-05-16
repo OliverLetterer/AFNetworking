@@ -45,6 +45,20 @@
     expect(^{ [self.client setDefaultHeader:@"x-some-key" value:nil]; }).toNot.raise(nil);
 }
 
+- (void)testAFQueryStringFromParametersWithEncoding {
+    NSString *query1 = AFQueryStringFromParametersWithEncoding(@{ @"key": @"value" }, NSUTF8StringEncoding);
+    expect(query1).to.equal(@"key=value");
+    
+    NSString *query2 = AFQueryStringFromParametersWithEncoding(@{ @"key": @[ @1, @"value" ] }, NSUTF8StringEncoding);
+    expect(query2).to.equal(@"key[]=1&key[]=value");
+    
+    NSString *query3 = AFQueryStringFromParametersWithEncoding(@{ @"key1": @"value1", @"key2": @"value2" }, NSUTF8StringEncoding);
+    expect(query3).to.equal(@"key1=value1&key2=value2");
+    
+    NSString *query4 = AFQueryStringFromParametersWithEncoding(@{ @"key1": @"value1", @"key2": @{ @"key": @[ @1, @"value" ] } }, NSUTF8StringEncoding);
+    expect(query4).to.equal(@"key1=value1&key2[key][]=1&key2[key][]=value");
+}
+
 - (void)testCancelAllHTTPOperationsWithMethodPath {
     NSMutableURLRequest *firstRequest = [self.client requestWithMethod:@"POST" path:@"/post" parameters:@{ @"key": @"value" }];
     NSMutableURLRequest *secondRequest = [self.client requestWithMethod:@"GET" path:@"/path" parameters:nil];
