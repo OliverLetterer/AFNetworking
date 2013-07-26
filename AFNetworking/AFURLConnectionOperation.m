@@ -124,6 +124,61 @@ static BOOL AFSecKeyIsEqualToKey(SecKeyRef key1, SecKeyRef key2) {
 #endif
 }
 
+static SecKeyRef AFSecCertificateCopyPublicKey(SecCertificateRef certificate, SecPolicyRef policy) {
+    SecCertificateRef someCertificates[] = {certificate};
+    SecKeyRef key = NULL;
+    CFArrayRef certificates = CFArrayCreate(NULL, (const void **)someCertificates, 1, NULL);
+    
+    SecTrustRef trust = NULL;
+    
+    OSStatus status = SecTrustCreateWithCertificates(certificates, policy, &trust);
+    NSCAssert(status == errSecSuccess, @"SecTrustCreateWithCertificates error: %ld", (long int)status);
+    
+    if (status == errSecSuccess && trust) {
+        SecTrustResultType result;
+        status = SecTrustEvaluate(trust, &result);
+        NSCAssert(status == errSecSuccess, @"SecTrustEvaluate error: %ld", (long int)status);
+        
+        if (status == errSecSuccess) {
+            key = SecTrustCopyPublicKey(trust);
+        }
+        
+        CFRelease(trust);
+    }
+    
+    CFRelease(certificates);
+    
+    return key;
+}
+
+#warning implement
+static BOOL AFVerifyWildcardHosts(NSString *host1, NSString *host2) {
+    NSLog(@"Verfiying %@ <--> %@", host1, host2);
+    if ([host1 isEqualToString:host2]) {
+        return YES;
+    }
+    
+    NSArray *host1Components = [host1 componentsSeparatedByString:@"."];
+    NSArray *host2Components = [host2 componentsSeparatedByString:@"."];
+    
+    if ([host1Components count] != [host2Components count]) {
+        return NO;
+    }
+    
+    NSUInteger index = [host1Components indexOfObjectPassingTest:^BOOL(NSString *component1, NSUInteger idx, BOOL *stop) {
+        NSString *component2 = [host2Components objectAtIndex:idx];
+        
+        if ([component1 isEqualToString:@"*"] || [component2 isEqualToString:@"*"] || [component1 isEqualToString:component2]) {
+            return NO;
+        }
+        
+        return YES;
+    }];
+    
+    BOOL hostsDoMatch = index == NSNotFound;
+    return hostsDoMatch;
+}
+
 @interface AFURLConnectionOperation ()
 @property (readwrite, nonatomic, assign) AFOperationState state;
 @property (readwrite, nonatomic, assign, getter = isCancelled) BOOL cancelled;
@@ -585,32 +640,41 @@ willSendRequestForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challe
         SecPolicyRef policy = SecPolicyCreateBasicX509();
         CFIndex certificateCount = SecTrustGetCertificateCount(serverTrust);
         NSMutableArray *trustChain = [NSMutableArray arrayWithCapacity:certificateCount];
+        NSArray *pinnedCertificates = [self.class pinnedCertificates];
         
         for (CFIndex i = 0; i < certificateCount; i++) {
             SecCertificateRef certificate = SecTrustGetCertificateAtIndex(serverTrust, i);
+            NSLog(@"wuff certificate: %@", SecCertificateCopySubjectSummary(certificate));
+            
+            if (i == 0) {
+                SecKeyRef publicKey = AFSecCertificateCopyPublicKey(certificate, policy);
+                
+                NSLog(@"testing certificate: %@", SecCertificateCopySubjectSummary(certificate));
+                
+                for (NSData *pinnedCertificateData in pinnedCertificates) {
+                    SecCertificateRef pinnedCertificate = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)pinnedCertificateData);
+                    SecKeyRef pinnedPublicKey = AFSecCertificateCopyPublicKey(pinnedCertificate, policy);
+                    NSLog(@"--> with certificate: %@", SecCertificateCopySubjectSummary(pinnedCertificate));
+                    
+                    if (AFSecKeyIsEqualToKey(pinnedPublicKey, publicKey)) {
+                        NSLog(@"MATCH with certificate: %@", SecCertificateCopySubjectSummary(pinnedCertificate));
+                        if (!AFVerifyWildcardHosts((__bridge_transfer NSString *)SecCertificateCopySubjectSummary(pinnedCertificate), challenge.protectionSpace.host)) {
+                            [challenge.sender cancelAuthenticationChallenge:challenge];
+                            return;
+                        }
+                    }
+                    
+                    CFRelease(pinnedPublicKey);
+                    CFRelease(pinnedCertificate);
+                }
+                
+                CFRelease(publicKey);
+            }
             
             if (self.SSLPinningMode == AFSSLPinningModeCertificate) {
                 [trustChain addObject:(__bridge_transfer NSData *)SecCertificateCopyData(certificate)];
             } else if (self.SSLPinningMode == AFSSLPinningModePublicKey) {
-                SecCertificateRef someCertificates[] = {certificate};
-                CFArrayRef certificates = CFArrayCreate(NULL, (const void **)someCertificates, 1, NULL);
-                
-                SecTrustRef trust = NULL;
-                
-                OSStatus status = SecTrustCreateWithCertificates(certificates, policy, &trust);
-                NSAssert(status == errSecSuccess, @"SecTrustCreateWithCertificates error: %ld", (long int)status);
-                if (status == errSecSuccess && trust) {
-                    SecTrustResultType result;
-                    status = SecTrustEvaluate(trust, &result);
-                    NSAssert(status == errSecSuccess, @"SecTrustEvaluate error: %ld", (long int)status);
-                    if (status == errSecSuccess) {
-                        [trustChain addObject:(__bridge_transfer id)SecTrustCopyPublicKey(trust)];
-                    }
-
-                    CFRelease(trust);
-                }
-              
-                CFRelease(certificates);
+                [trustChain addObject:(__bridge id)AFSecCertificateCopyPublicKey(certificate, policy)];
             }
         }
         
@@ -635,7 +699,7 @@ willSendRequestForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challe
             }
             case AFSSLPinningModeCertificate: {
                 for (id serverCertificateData in trustChain) {
-                    if ([[self.class pinnedCertificates] containsObject:serverCertificateData]) {
+                    if ([pinnedCertificates containsObject:serverCertificateData]) {
                         NSURLCredential *credential = [NSURLCredential credentialForTrust:serverTrust];
                         [[challenge sender] useCredential:credential forAuthenticationChallenge:challenge];
                         return;
